@@ -1,3 +1,4 @@
+import traceback
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from services.vector_store import get_vector_store
@@ -5,7 +6,6 @@ from services.rag_engine import get_chat_engine
 
 router = APIRouter()
 
-# Define the expected JSON format from the frontend
 class ChatRequest(BaseModel):
     query: str
 
@@ -15,20 +15,25 @@ async def chat_with_document(request: ChatRequest):
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
         
     try:
-        # 1. Connect to Pinecone
+        print(f"\n--- NEW CHAT REQUEST ---")
+        print(f"1. Received query: '{request.query}'")
+        
         vector_store = get_vector_store()
+        print("2. Pinecone Vector Store connected.")
         
-        # 2. Initialize the chat engine
-        chat_engine = get_chat_engine(vector_store)
+        engine = get_chat_engine(vector_store)
+        print("3. Query Engine initialized successfully.")
         
-        # 3. Query the AI with the user's question
-        response = chat_engine.chat(request.query)
+        print("4. Sending query to OpenRouter...")
+        response = engine.query(request.query)
+        print("5. AI Response received!")
         
         return {
             "answer": str(response),
-            # Optional: Return the source nodes to show the user exactly where the AI got the info
-            "sources": [node.text for node in response.source_nodes] 
+            "sources": [node.text for node in response.source_nodes] if hasattr(response, "source_nodes") else []
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print("\n❌ CRITICAL ERROR IN CHAT ENDPOINT:")
+        traceback.print_exc()  # This forces the exact error to print in the terminal
+        raise HTTPException(status_code=500, detail=f"Failed during chat: {str(e)}")

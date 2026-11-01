@@ -1,31 +1,42 @@
 from llama_index.core import VectorStoreIndex, Settings
-from llama_index.llms.openrouter import OpenRouter
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from core.config import settings
+from llama_index.llms.openai_like import OpenAILike  # Updated import
+from llama_index.core.prompts import PromptTemplate
+from llama_index.core.node_parser import SentenceSplitter
+import os
 
-# 1. Configure the LLM (OpenRouter Free Auto-Router)
-# 'openrouter/free' dynamically routes to the best available free model 
-# (like NVIDIA Nemotron, Google Gemma, or Thinking Machines) at that exact second.
-llm = OpenRouter(
-    api_key=settings.OPENROUTER_API_KEY,
-    model="openrouter/free", 
-    max_tokens=1024,
+Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
+Settings.text_splitter = SentenceSplitter(
+    chunk_size=512,
+    chunk_overlap=100,
+    paragraph_separator="\n\n"
 )
 
-# 2. Configure the Embedding Model (Runs locally, 100% free)
-# BAAI/bge-small-en-v1.5 is extremely fast and requires a dimension of 384 in Pinecone
-embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
-
-# 3. Apply settings globally to LlamaIndex
-Settings.llm = llm
-Settings.embed_model = embed_model
-Settings.chunk_size = 512
-Settings.chunk_overlap = 50
-
 def get_chat_engine(vector_store):
-    """Creates a chat engine from the vector store index."""
-    # Load the index directly from Pinecone
+    # Updated LLM class
+    llm = OpenAILike(
+        model="openrouter/free", 
+        api_key=os.getenv("OPENROUTER_API_KEY"),
+        api_base="https://openrouter.ai/api/v1",
+        is_chat_model=True,
+        temperature=0.1
+    )
+    Settings.llm = llm
+
     index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
     
-    # Return a chat engine that remembers conversation history
-    return index.as_chat_engine(chat_mode="condense_question", verbose=True)
+    text_qa_template = PromptTemplate(
+        "You are an expert document analyst.\n"
+        "Context information is below.\n"
+        "---------------------\n"
+        "{context_str}\n"
+        "---------------------\n"
+        "Given the context information and not prior knowledge, answer the query accurately. "
+        "Query: {query_str}\n"
+        "Answer: "
+    )
+
+    return index.as_query_engine(
+        similarity_top_k=5,
+        text_qa_template=text_qa_template
+    )
